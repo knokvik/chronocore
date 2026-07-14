@@ -58,3 +58,5 @@ sudo ./build/chronocore-daemon --shm /chronocore-example --target-pid PID --port
 `--baseline-key` is mandatory with persistence. Make it change whenever the target binary, CPU model, kernel collector configuration, or event period changes; mismatched records are ignored.
 
 The generic collector reports `PERF_COUNT_HW_CACHE_MISSES` as cache-miss attribution. Do not label it “L3 misses” on a CPU until its PMU event semantics have been verified.
+
+If the cloud VM does not expose a CPU PMU, ChronoCore logs a warning and continues in markers-only mode, retaining all latency metrics and regression alerts. Add `--require-perf` to fail startup instead—useful for a hardware-attribution benchmark that must not silently fall back.

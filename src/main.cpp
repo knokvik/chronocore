@@ -17,7 +17,7 @@
 namespace {
 void usage() {
   std::cout << "Usage: chronocore-daemon [--port 8080] [--demo-regression-after-ms 5000] "
-               "[--shm NAME --target-pid PID] [--baseline PATH --baseline-key KEY]\n";
+               "[--shm NAME --target-pid PID [--require-perf]] [--baseline PATH --baseline-key KEY]\n";
 }
 }  // namespace
 
@@ -28,9 +28,11 @@ int main(int argc, char** argv) {
   std::optional<std::string> shared_memory_name;
   std::optional<std::uint32_t> target_pid;
   std::string baseline_key;
+  bool require_perf = false;
   for (int i = 1; i < argc; ++i) {
     const std::string_view arg(argv[i]);
     if (arg == "--help") { usage(); return 0; }
+    if (arg == "--require-perf") { require_perf = true; continue; }
     if ((arg == "--port" || arg == "--demo-regression-after-ms") && i + 1 < argc) {
       const auto value = std::stoull(argv[++i]);
       if (arg == "--port") port = static_cast<std::uint16_t>(value); else regression_after_ms = value;
@@ -64,8 +66,15 @@ int main(int argc, char** argv) {
     }
     std::optional<chronocore::PerfCollector> perf_collector;
     if (target_pid) {
-      perf_collector.emplace(*engine, chronocore::PerfCollectorConfig{.target_pid = *target_pid});
-      perf_collector->start();
+      try {
+        perf_collector.emplace(*engine, chronocore::PerfCollectorConfig{.target_pid = *target_pid});
+        perf_collector->start();
+      } catch (const std::exception& error) {
+        perf_collector.reset();
+        if (require_perf) throw;
+        std::cerr << "chronocore-daemon: hardware attribution unavailable; continuing with latency markers only: "
+                  << error.what() << '\n';
+      }
     }
     if (baseline_store) {
       std::thread([engine, baseline_store] {
