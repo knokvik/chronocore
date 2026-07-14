@@ -1,8 +1,10 @@
 #include "chronocore/shared_ring.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -13,8 +15,16 @@ namespace chronocore {
 namespace {
 constexpr std::uint64_t kMagic = 0x4348524f4e4f5245ULL;  // "CHRONORE"
 constexpr std::uint32_t kVersion = 1;
+// Owner + group + other RW so a non-root instrumented app can publish while a
+// privileged (sudo) daemon attaches for perf_event_open without a manual chmod.
+constexpr mode_t kSharedRingMode = 0666;
+
 void require_valid_name(const std::string& name) {
   if (name.empty() || name.front() != '/') throw std::invalid_argument("shared-memory name must begin with '/'");
+}
+
+std::string errno_message(const std::string& prefix) {
+  return prefix + ": " + std::strerror(errno);
 }
 }  // namespace
 
@@ -32,12 +42,29 @@ SharedMarkerRing::SharedMarkerRing(int descriptor, void* mapping, std::size_t ma
 SharedMarkerRing SharedMarkerRing::create(const std::string& name, std::size_t capacity) {
   require_valid_name(name);
   if (capacity < 2 || capacity > UINT32_MAX) throw std::invalid_argument("invalid shared-ring capacity");
-  const int descriptor = shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
-  if (descriptor < 0) throw std::runtime_error("cannot create shared ring " + name);
+  // Clear umask for this open so 0666 is not reduced by the process mask.
+  // fchmod is applied on Linux; macOS often returns EINVAL for POSIX shm fds.
+  const mode_t previous_umask = umask(0);
+  const int descriptor = shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, kSharedRingMode);
+  umask(previous_umask);
+  if (descriptor < 0) throw std::runtime_error(errno_message("cannot create shared ring " + name));
+  if (fchmod(descriptor, kSharedRingMode) != 0 && errno != EINVAL && errno != ENOTSUP) {
+    close(descriptor);
+    shm_unlink(name.c_str());
+    throw std::runtime_error(errno_message("cannot set shared ring mode " + name));
+  }
   const auto size = sizeof(Header) + capacity * sizeof(AppMarker);
-  if (ftruncate(descriptor, static_cast<off_t>(size)) != 0) { close(descriptor); shm_unlink(name.c_str()); throw std::runtime_error("cannot size shared ring"); }
+  if (ftruncate(descriptor, static_cast<off_t>(size)) != 0) {
+    close(descriptor);
+    shm_unlink(name.c_str());
+    throw std::runtime_error(errno_message("cannot size shared ring"));
+  }
   void* mapping = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, descriptor, 0);
-  if (mapping == MAP_FAILED) { close(descriptor); shm_unlink(name.c_str()); throw std::runtime_error("cannot map shared ring"); }
+  if (mapping == MAP_FAILED) {
+    close(descriptor);
+    shm_unlink(name.c_str());
+    throw std::runtime_error(errno_message("cannot map shared ring"));
+  }
   std::memset(mapping, 0, size);
   auto* header = static_cast<Header*>(mapping);
   header->magic = kMagic;
@@ -49,11 +76,17 @@ SharedMarkerRing SharedMarkerRing::create(const std::string& name, std::size_t c
 SharedMarkerRing SharedMarkerRing::open(const std::string& name) {
   require_valid_name(name);
   const int descriptor = shm_open(name.c_str(), O_RDWR, 0);
-  if (descriptor < 0) throw std::runtime_error("cannot open shared ring " + name);
+  if (descriptor < 0) throw std::runtime_error(errno_message("cannot open shared ring " + name));
   struct stat status {};
-  if (fstat(descriptor, &status) != 0 || status.st_size < static_cast<off_t>(sizeof(Header))) { close(descriptor); throw std::runtime_error("invalid shared ring"); }
+  if (fstat(descriptor, &status) != 0 || status.st_size < static_cast<off_t>(sizeof(Header))) {
+    close(descriptor);
+    throw std::runtime_error("invalid shared ring");
+  }
   void* mapping = mmap(nullptr, static_cast<std::size_t>(status.st_size), PROT_READ | PROT_WRITE, MAP_SHARED, descriptor, 0);
-  if (mapping == MAP_FAILED) { close(descriptor); throw std::runtime_error("cannot map shared ring"); }
+  if (mapping == MAP_FAILED) {
+    close(descriptor);
+    throw std::runtime_error(errno_message("cannot map shared ring"));
+  }
   const auto* header = static_cast<const Header*>(mapping);
   const auto minimum_size = static_cast<off_t>(sizeof(Header) + header->capacity * sizeof(AppMarker));
   if (header->magic != kMagic || header->version != kVersion || status.st_size < minimum_size) {
