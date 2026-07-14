@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
     if (baseline_store) {
       std::thread([engine, baseline_store] {
         while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+          std::this_thread::sleep_for(std::chrono::seconds(1));
           baseline_store->save(engine->baseline_records());
         }
       }).detach();
