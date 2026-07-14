@@ -46,15 +46,23 @@ std::optional<CorrelatedSample> CorrelationEngine::ingest_counter(CounterSample 
   auto best = pending_events_.end();
   Nanoseconds best_distance = config_.correlation_window_ns + 1;
   for (auto it = pending_events_.rbegin(); it != pending_events_.rend(); ++it) {
-    const auto distance = it->timestamp_ns > sample.timestamp_ns
-        ? it->timestamp_ns - sample.timestamp_ns : sample.timestamp_ns - it->timestamp_ns;
+    // An application marker is emitted at completion. A PMU overflow can occur
+    // anywhere in [completion - measured_latency, completion], rather than at
+    // the final marker timestamp. The small window only covers clock/record
+    // boundary uncertainty around that measured span.
+    const auto start = it->timestamp_ns > it->latency_ns ? it->timestamp_ns - it->latency_ns : 0;
+    const auto end = it->timestamp_ns;
+    const auto distance = sample.timestamp_ns < start ? start - sample.timestamp_ns
+        : sample.timestamp_ns > end ? sample.timestamp_ns - end : 0;
     const bool same_process = sample.process_id == 0 || it->process_id == 0 || sample.process_id == it->process_id;
     const bool same_thread = sample.thread_id == 0 || it->thread_id == 0 || sample.thread_id == it->thread_id;
     if (same_process && same_thread && distance <= config_.correlation_window_ns && distance < best_distance) {
       best = std::prev(it.base());
       best_distance = distance;
     }
-    if (it->timestamp_ns + config_.correlation_window_ns < sample.timestamp_ns) break;
+    // Events are completion-time ordered. Once this event ends well before the
+    // sample, all older events are farther away too.
+    if (end + config_.correlation_window_ns < sample.timestamp_ns) break;
   }
   if (best == pending_events_.end()) return std::nullopt;
 
@@ -114,7 +122,8 @@ std::vector<Alert> CorrelationEngine::recent_alerts() const {
 }
 
 void CorrelationEngine::remove_expired_events(Nanoseconds latest_timestamp) {
-  while (!pending_events_.empty() && pending_events_.front().timestamp_ns + config_.correlation_window_ns < latest_timestamp) {
+  while (!pending_events_.empty() &&
+      pending_events_.front().timestamp_ns + config_.pending_event_retention_ns < latest_timestamp) {
     pending_events_.pop_front();
   }
 }

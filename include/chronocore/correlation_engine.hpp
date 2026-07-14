@@ -32,6 +32,9 @@ struct BaselineRecord {
 
 struct CorrelationConfig {
   Nanoseconds correlation_window_ns{500};
+  // Perf records are delivered asynchronously. Keep completed operations long
+  // enough to match a sample timestamp from their measured execution span.
+  Nanoseconds pending_event_retention_ns{1'000'000};
   std::size_t baseline_min_samples{100};
   std::size_t sustained_high_samples{3};
   double alert_sigma{3.};

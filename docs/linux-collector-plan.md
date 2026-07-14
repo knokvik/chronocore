@@ -5,7 +5,7 @@ ChronoCore’s claim is only meaningful if the kernel collector is honest about 
 ## Implemented path
 
 1. The target application writes 64-byte measured-latency markers into a POSIX shared-memory SPSC ring.
-2. The daemon drains that ring and a task-scoped `perf_event_open` mmap ring. Its current collector requests `precise_ip=2`, preserves timestamp/PID/TID/CPU/IP, and feeds the correlation core.
+2. The daemon drains that ring and a task-scoped `perf_event_open` mmap ring. Its current collector requests `precise_ip=2`, preserves timestamp/PID/TID/CPU/IP, and correlates a sample against the marker’s measured execution span (not merely its completion timestamp).
 3. If the PMU or permissions reject the request, startup fails with an actionable error. It never silently switches to a less precise profiler.
 
 The current collector uses `PERF_COUNT_HW_CACHE_MISSES`, which is deliberately labelled cache-miss attribution—not L3 attribution. Use PMU-specific event discovery before adding a CPU-specific L3 claim.

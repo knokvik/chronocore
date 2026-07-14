@@ -6,7 +6,7 @@ ChronoCore correlates application-measured latency events with hardware-counter 
 
 ## What works today
 
-- Nanosecond event/counter correlation within a bounded window (default: ±500 ns).
+- Hardware samples correlate against the full application-measured operation span, with a bounded 1 ms delivery-retention window and ±500 ns boundary tolerance.
 - Per-function Welford mean/variance and constant-memory P² p99 estimator.
 - Live 3σ regression alerts after a 100-sample baseline; three consecutive
   excursions open one incident, which avoids alerting on an isolated outlier.
