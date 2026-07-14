@@ -69,7 +69,7 @@ std::optional<CorrelatedSample> CorrelationEngine::ingest_counter(CounterSample 
   CorrelatedSample correlated{*best, sample, best_distance};
   auto& state = states_[best->function];
   // Latency/alerts already recorded on ingest_event; counters only add attribution.
-  state.l3_misses.add(static_cast<double>(sample.l3_misses));
+  state.cache_misses.add(static_cast<double>(sample.cache_misses));
   state.branch_misses.add(static_cast<double>(sample.branch_misses));
   pending_events_.erase(best);
   notify_update();
@@ -82,7 +82,7 @@ std::vector<FunctionMetrics> CorrelationEngine::metrics() const {
   result.reserve(states_.size());
   for (const auto& [function, state] : states_) {
     result.push_back({function, state.latency.count(), state.latency.mean(), state.p99.value(),
-                      state.l3_misses.mean(), state.branch_misses.mean(), state.baseline_ready});
+                      state.cache_misses.mean(), state.branch_misses.mean(), state.baseline_ready});
   }
   return result;
 }

@@ -18,7 +18,7 @@ struct FunctionMetrics {
   std::size_t samples{};
   double mean_latency_ns{};
   double p99_latency_ns{};
-  double l3_misses_per_event{};
+  double cache_misses_per_event{};
   double branch_misses_per_event{};
   bool baseline_ready{};
 };
@@ -55,7 +55,7 @@ class CorrelationEngine {
  private:
   struct FunctionState {
     Welford latency;
-    Welford l3_misses;
+    Welford cache_misses;
     Welford branch_misses;
     P2Quantile p99{0.99};
     Welford baseline_latency;

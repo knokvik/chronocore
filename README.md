@@ -57,8 +57,16 @@ sudo ./build/chronocore-daemon --shm /chronocore-example --target-pid PID --port
 
 `--baseline-key` is mandatory with persistence. Make it change whenever the target binary, CPU model, kernel collector configuration, or event period changes; mismatched records are ignored.
 
-The generic collector reports `PERF_COUNT_HW_CACHE_MISSES` as cache-miss attribution. Do not label it “L3 misses” on a CPU until its PMU event semantics have been verified.
+The generic collector reports `PERF_COUNT_HW_CACHE_MISSES` as `cache_misses_per_event`. Do not interpret it as L3 misses on a CPU until its PMU event semantics have been verified.
 
 If the cloud VM does not expose a CPU PMU, ChronoCore logs a warning and continues in markers-only mode, retaining all latency metrics and regression alerts. Add `--require-perf` to fail startup instead—useful for a hardware-attribution benchmark that must not silently fall back.
+
+For a real PMU host, run the strict end-to-end check:
+
+```bash
+CHRONOCORE_SUDO=1 ./scripts/bare-metal-perf-validation.sh
+```
+
+It requires a nonzero `cache_misses_per_event` result and at least one regression alert. Artifacts are written outside the repository by default.
 
 Shared-memory rings are created mode `0666` (via `fchmod` after `shm_open`) so a non-root instrumented process and a `sudo` daemon can share the same ring without a manual `chmod`.

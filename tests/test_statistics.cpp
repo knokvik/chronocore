@@ -49,7 +49,7 @@ int main() {
   span_engine.ingest_event({2, 2'000, "OrderBook::insert", 50, 7, 7, 0});
   const auto span_match = span_engine.ingest_counter({900, 10, 0, 7, 7, 0, 0});
   assert(span_match.has_value() && span_match->event.sequence == 1 && span_match->correlation_distance_ns == 0);
-  assert(span_engine.metrics().front().l3_misses_per_event == 10.);
+  assert(span_engine.metrics().front().cache_misses_per_event == 10.);
 
   const auto fixture = std::filesystem::temp_directory_path() / "chronocore-baseline-test";
   chronocore::BaselineStore store(fixture, "build-a|cpu-a|collector-a");

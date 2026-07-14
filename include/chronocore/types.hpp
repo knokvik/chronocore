@@ -21,7 +21,7 @@ struct AppEvent {
 
 struct CounterSample {
   Nanoseconds timestamp_ns{};
-  std::uint64_t l3_misses{};
+  std::uint64_t cache_misses{};
   std::uint64_t branch_misses{};
   std::uint32_t process_id{};
   std::uint32_t thread_id{};

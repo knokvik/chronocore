@@ -1,2 +1,9 @@
 /build/
 .DS_Store
+/chronocore-friend-results/
+/chronocore-friend-results.tgz
+/chronocore-perf-results/
+/daemon.log
+/engine.log
+/health.json
+/metrics.json
