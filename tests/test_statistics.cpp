@@ -30,6 +30,18 @@ int main() {
   assert(metrics.size() == 1 && metrics[0].samples == 34);
   assert(!engine.recent_alerts().empty());
 
+  // Markers-only path (no PMU counters) must still produce latency metrics/alerts.
+  chronocore::CorrelationEngine markers_only({.correlation_window_ns = 100, .baseline_min_samples = 30});
+  for (std::uint64_t i = 0; i < 31; ++i) {
+    markers_only.ingest_event({i, 1'000 + i * 1'000, "OrderBook::insert", 50});
+  }
+  for (std::uint64_t i = 0; i < 3; ++i) {
+    markers_only.ingest_event({99 + i, 99'000 + i * 1'000, "OrderBook::insert", 90});
+  }
+  const auto marker_metrics = markers_only.metrics();
+  assert(marker_metrics.size() == 1 && marker_metrics[0].samples == 34);
+  assert(!markers_only.recent_alerts().empty());
+
   const auto fixture = std::filesystem::temp_directory_path() / "chronocore-baseline-test";
   chronocore::BaselineStore store(fixture, "build-a|cpu-a|collector-a");
   store.save(engine.baseline_records());

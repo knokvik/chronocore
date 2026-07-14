@@ -10,6 +10,32 @@ CorrelationEngine::CorrelationEngine(CorrelationConfig config) : config_(config)
 void CorrelationEngine::ingest_event(AppEvent event) {
   std::scoped_lock lock(mutex_);
   remove_expired_events(event.timestamp_ns);
+  // Application-measured latency is the primary signal. Hardware counters only
+  // attribute causes; without a PMU the markers-only path must still populate
+  // metrics and fire 3σ alerts.
+  auto& state = states_[event.function];
+  const auto observed = static_cast<double>(event.latency_ns);
+  if (!state.baseline_ready && state.latency.count() >= config_.baseline_min_samples) {
+    state.baseline_latency = state.latency;
+    state.baseline_ready = true;
+  }
+  const bool high = state.baseline_ready && state.baseline_latency.is_high_outlier(
+      observed, config_.baseline_min_samples, config_.alert_sigma);
+  state.consecutive_high_samples = high ? state.consecutive_high_samples + 1 : 0;
+  // A 3σ point by itself is expected occasionally in any long-running stream.
+  // Open one incident only after a short sustained excursion, then require the
+  // signal to recover before a later regression may open another incident.
+  if (high && !state.incident_open && state.consecutive_high_samples >= config_.sustained_high_samples) {
+    alerts_.push_back({event.function, observed, state.baseline_latency.mean(), state.baseline_latency.stddev(),
+                       event.timestamp_ns, event.sequence});
+    if (alerts_.size() > 32) alerts_.pop_front();
+    state.incident_open = true;
+  } else if (state.incident_open && observed <= state.baseline_latency.mean() + state.baseline_latency.stddev()) {
+    state.incident_open = false;
+    state.consecutive_high_samples = 0;
+  }
+  state.latency.add(observed);
+  state.p99.add(observed);
   pending_events_.push_back(std::move(event));
   notify_update();
 }
@@ -34,30 +60,9 @@ std::optional<CorrelatedSample> CorrelationEngine::ingest_counter(CounterSample 
 
   CorrelatedSample correlated{*best, sample, best_distance};
   auto& state = states_[best->function];
-  const auto observed = static_cast<double>(correlated.event.latency_ns);
-  if (!state.baseline_ready && state.latency.count() >= config_.baseline_min_samples) {
-    state.baseline_latency = state.latency;
-    state.baseline_ready = true;
-  }
-  const bool high = state.baseline_ready && state.baseline_latency.is_high_outlier(
-      observed, config_.baseline_min_samples, config_.alert_sigma);
-  state.consecutive_high_samples = high ? state.consecutive_high_samples + 1 : 0;
-  // A 3σ point by itself is expected occasionally in any long-running stream.
-  // Open one incident only after a short sustained excursion, then require the
-  // signal to recover before a later regression may open another incident.
-  if (high && !state.incident_open && state.consecutive_high_samples >= config_.sustained_high_samples) {
-    alerts_.push_back({best->function, observed, state.baseline_latency.mean(), state.baseline_latency.stddev(),
-                       sample.timestamp_ns, best->sequence});
-    if (alerts_.size() > 32) alerts_.pop_front();
-    state.incident_open = true;
-  } else if (state.incident_open && observed <= state.baseline_latency.mean() + state.baseline_latency.stddev()) {
-    state.incident_open = false;
-    state.consecutive_high_samples = 0;
-  }
-  state.latency.add(observed);
+  // Latency/alerts already recorded on ingest_event; counters only add attribution.
   state.l3_misses.add(static_cast<double>(sample.l3_misses));
   state.branch_misses.add(static_cast<double>(sample.branch_misses));
-  state.p99.add(observed);
   pending_events_.erase(best);
   notify_update();
   return correlated;
